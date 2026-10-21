@@ -172,7 +172,7 @@ pub fn prompt_for(w: &Wizard, themes: &[String]) -> Reply {
         }
         Step::Language => reply(
             format!(
-                "Language of the question? Type a code, or keep <b>{}</b>.",
+                "Language of this question? Type a code like en or sv, or keep <b>{}</b>.",
                 esc(&w.draft.language)
             ),
             vec![
@@ -267,8 +267,9 @@ fn review(w: &Wizard) -> Reply {
             vec![
                 b("Difficulty", "edit:difficulty"),
                 b("Theme", "edit:theme"),
-                b("Extras", "edit:extras"),
+                b(&format!("Language: {}", c.language), "edit:language"),
             ],
+            vec![b("Extras", "edit:extras")],
             cancel_row(),
         ],
     )
@@ -302,7 +303,8 @@ fn next(w: &Wizard, cur: Step) -> Step {
         },
         Step::Choices | Step::Parts | Step::Media => Step::Difficulty,
         Step::Difficulty => Step::Theme,
-        Step::Theme => Step::Language,
+        // The language is the group's default; it's changed from the review screen.
+        Step::Theme => Step::Extras,
         Step::Language => Step::Extras,
         Step::Accepted
         | Step::FunFact
@@ -450,10 +452,7 @@ pub fn step(mut w: Wizard, input: Input, themes: &[String]) -> (Wizard, Reply, A
         }
         (Step::Language, Input::Text(t)) => {
             let l = t.trim().to_lowercase();
-            if l.is_empty()
-                || l.len() > 16
-                || !l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-            {
+            if !crate::domain::rules::language_ok(&l) {
                 return again(w, "Use a short code like fi, en or sv.", themes);
             }
             w.draft.language = l;
@@ -516,6 +515,7 @@ pub fn step(mut w: Wizard, input: Input, themes: &[String]) -> (Wizard, Reply, A
                 "parts" => Step::Parts,
                 "difficulty" => Step::Difficulty,
                 "theme" => Step::Theme,
+                "language" => Step::Language,
                 "extras" => return go_to(w, Step::Extras, themes),
                 _ => return again(w, "Pick one of the buttons.", themes),
             };
@@ -602,7 +602,6 @@ mod tests {
                 t("Helsinki"),
                 btn("diff:2"),
                 btn("theme:0"),
-                btn("lang_keep"),
             ],
         );
         assert_eq!(w.step, Step::Extras);
@@ -751,11 +750,22 @@ mod tests {
         assert_eq!(w2.step, Step::Theme);
         let (w, _, _) = run(w, vec![t("Music")]);
         assert_eq!(w.draft.theme, "music");
-        let (w, r, _) = run(w, vec![t("not a language!")]);
+        // the group's language is taken as is: straight on to the extras
+        assert_eq!(w.step, Step::Extras);
+        assert_eq!(w.draft.language, "fi");
+        // and changed from the review screen when one question differs
+        let (w, r, _) = run(w, vec![btn("review")]);
+        assert!(r.buttons.iter().flatten().any(
+            |b| matches!(b, Button::Callback { text, data } if text == "Language: fi" && data == "w:edit:language")
+        ));
+        let (w, r, _) = run(w, vec![btn("edit:language"), t("not a language!")]);
         assert!(r.html.contains("short code"));
+        assert_eq!(w.step, Step::Language);
         let (w, _, _) = run(w, vec![t("EN")]);
-        assert_eq!(w.draft.language, "en");
-        let (w, r, _) = run(w, vec![btn("x:nope")]);
+        assert_eq!((w.step, w.draft.language.as_str()), (Step::Review, "en"));
+        let (w, _, _) = run(w, vec![btn("edit:language"), btn("lang_keep")]);
+        assert_eq!((w.step, w.draft.language.as_str()), (Step::Review, "en"));
+        let (w, r, _) = run(w, vec![btn("edit:extras"), btn("x:nope")]);
         assert!(r.html.contains("Pick one"));
         let (w, _, _) = run(
             w,
@@ -784,7 +794,6 @@ mod tests {
                 t("A"),
                 btn("diff:3"),
                 btn("theme:1"),
-                btn("lang_keep"),
                 btn("review"),
             ],
         );
@@ -833,7 +842,6 @@ mod tests {
                 t("A"),
                 btn("diff:3"),
                 btn("theme:1"),
-                btn("lang_keep"),
                 btn("review"),
             ],
         );

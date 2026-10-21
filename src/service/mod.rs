@@ -11,6 +11,7 @@ pub mod outbox;
 pub mod questions;
 pub mod quizzes;
 pub mod reviews;
+pub mod settings;
 pub mod telegram;
 
 use crate::config::Config;

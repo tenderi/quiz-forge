@@ -655,3 +655,50 @@ async fn logout_ends_the_session() {
     assert!(res.header("set-cookie").contains("Max-Age=0"));
     assert_eq!(c.get("/").await.status, StatusCode::SEE_OTHER);
 }
+
+#[tokio::test]
+async fn settings_page_sets_the_group_language() {
+    let mut h = h().await;
+    fixed_clock(&mut h);
+    let a = h.member(1, "Aino").await;
+    let c = login(&h, &a).await;
+    let page = c.get("/settings").await;
+    assert!(page.body.contains("value=\"fi\""));
+    assert_eq!(
+        c.post_form("/settings", &[("language", "x y")])
+            .await
+            .status,
+        StatusCode::BAD_REQUEST
+    );
+    let res = c.post_form("/settings", &[("language", "SV")]).await;
+    assert!(res.header("hx-redirect").starts_with("/settings?notice="));
+    assert!(
+        c.get("/questions/new")
+            .await
+            .body
+            .contains("name=\"language\" value=\"sv\"")
+    );
+    // a form without a language gets the group's
+    let res = c
+        .post_multipart(
+            "/questions",
+            &[
+                ("kind", "text"),
+                ("prompt", "Vilken är Finlands huvudstad?"),
+                ("answer", "Helsingfors"),
+                ("theme", "geography"),
+            ],
+            &[],
+        )
+        .await;
+    assert!(res.header("hx-redirect").starts_with("/questions/1"));
+    assert_eq!(
+        questions::detail(&h.app, 1)
+            .await
+            .unwrap()
+            .current
+            .content
+            .language,
+        "sv"
+    );
+}

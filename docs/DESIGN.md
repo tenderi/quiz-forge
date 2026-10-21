@@ -166,9 +166,11 @@ per `(version, rule)`, so a retry never posts twice.
 
 - **Telegram:** `/add` in the group (or in DM) opens a DM wizard. It walks
   kind → prompt → answer → kind-specific fields (choices / parts / photo / audio) →
-  difficulty (buttons) → theme (buttons) → language (default preselected) →
+  difficulty (buttons) → theme (buttons) →
   optional fields (skip-able: alternatives, background, fun fact, host notes,
-  sources, tags) → **review screen** → submit. Wizard state is persisted, so a bot
+  sources, tags) → **review screen** → submit. The wizard never asks for the
+  language: questions get the group's language (§5.6), and the review screen has a
+  *Language* button for the occasional question in another one. Wizard state is persisted, so a bot
   restart doesn't lose a half-typed question, and `/cancel` drops it.
 - **Web:** the same fields on one form, with live rule and duplicate feedback.
 - On submit, the rules (§4.3) run, then the duplicate check (§6). The author sees
@@ -229,6 +231,14 @@ specific `base_version_id`, with a short rationale.
 They stay in the bank as `rejected`, with full history and the votes on record.
 The author can revise and resubmit, which starts the next `vote_round`. Rejected
 questions still show up in duplicate warnings, marked as rejected.
+
+### 5.6 Group language
+
+A group writes its questions in one language. That language is a group setting
+(`meta.default_language`): `/language <code>` in Telegram or the web app's
+Settings page changes it, and any member can do that. `DEFAULT_LANGUAGE` is only
+its starting value. New questions get it unless their author switches that one
+question on the review screen or in the web form.
 
 ## 6. Duplicate detection (deterministic)
 
@@ -509,6 +519,7 @@ audit(id, at, actor_id, action, subject, data jsonb)
 | Group | vote card | ✅/❌ inline buttons, live tally, link to web; edited in place on close |
 | Group | `/add` | Starts the DM wizard (the bot replies "check your DMs") |
 | Group | `/stats` | Counts per status/theme, top contributors |
+| Either | `/language [code]` | Show or set the group's question language (§5.6) |
 | DM | `/add`, `/cancel` | Submission wizard |
 | DM | `/mine` | Your questions with status and open proposals |
 | DM | `/inbox` | Proposals awaiting your decision, with accept/decline buttons and the diff inline |
@@ -542,7 +553,7 @@ docs/               DESIGN.md DEPLOYMENT.md
 
 ## 15. Milestones
 
-All six are done as of 2026-10-21: 136 tests, 94 % line coverage
+All six are done as of 2026-10-21: 138 tests (2026-10-22), 94 % line coverage
 (`cargo llvm-cov`; CI fails under 90 %). The parts not covered are the teloxide
 glue that needs the live Telegram API, `main.rs` and the scheduler's loop.
 
@@ -570,5 +581,6 @@ glue that needs the live Telegram API, `main.rs` and the scheduler's loop.
 | 2026-10-21 | SQLite instead of PostgreSQL: one file, no database server, backup with `VACUUM INTO` |
 | 2026-10-21 | The agent calls the Messages API over raw HTTP (no official Rust SDK): default model `claude-opus-5-5` at effort `medium`, `web_search_20260209`, a strict `submit_review` tool with `tool_choice: auto`, `pause_turn` resumed, and `fallbacks: "default"` so a safety-classifier decline is retried on a fallback model instead of failing |
 | 2026-10-21 | Templates are TOML. Theme groups are written as variables (`theme = "$a"`), one theme per variable per round, instead of separate group blocks |
+| 2026-10-22 | The group's question language is a stored setting (`/language`, web Settings); the `/add` wizard doesn't ask for it and offers a switch on the review screen |
 | 2026-10-21 | No `draft` status in the database: an unsubmitted question lives in the wizard or form until it passes the house rules |
 | 2026-10-21 | Licence: MIT |

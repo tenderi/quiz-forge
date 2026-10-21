@@ -227,7 +227,8 @@ pub fn classify_answer(prompt: &str, answer: &str) -> AnswerClass {
     AnswerClass::Plain
 }
 
-fn language_ok(lang: &str) -> bool {
+/// A plausible language code: `fi`, `en`, `pt-br`.
+pub fn language_ok(lang: &str) -> bool {
     !lang.is_empty()
         && lang.len() <= 16
         && lang.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')

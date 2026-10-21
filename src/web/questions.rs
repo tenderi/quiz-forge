@@ -8,7 +8,7 @@ use crate::domain::model::{Content, Kind, MediaKind, MediaRef, Patch, format_par
 use crate::domain::rules::RuleReport;
 use crate::domain::voting::Vote;
 use crate::service::questions::{self, DecideOutcome, EditOutcome, Filter, SubmitOutcome};
-use crate::service::{App, AppError, media, members};
+use crate::service::{App, AppError, media, members, settings};
 use axum::Router;
 use axum::extract::{Form, Multipart, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
@@ -31,6 +31,7 @@ pub fn routes() -> Router<App> {
         .route("/proposals/{id}/decide", post(decide))
         .route("/proposals/{id}/withdraw", post(withdraw))
         .route("/themes", post(add_theme))
+        .route("/settings", get(settings_page).post(save_settings))
         .route("/media/{id}", get(serve_media))
 }
 
@@ -523,7 +524,7 @@ async fn new_form(State(app): State<App>, v: Viewer) -> WebResult<Markup> {
         "",
         "",
         themes.first().map(String::as_str).unwrap_or(""),
-        &app.cfg.default_language,
+        &settings::default_language(&app).await?,
     );
     c.points = 1;
     Ok(page(
@@ -540,7 +541,7 @@ async fn new_form(State(app): State<App>, v: Viewer) -> WebResult<Markup> {
 async fn check(State(app): State<App>, v: Viewer, mp: Multipart) -> WebResult<Markup> {
     let _ = v;
     let f = read_form(mp).await?;
-    let c = f.content(&app.cfg.default_language);
+    let c = f.content(&settings::default_language(&app).await?);
     if c.prompt.is_empty() {
         return Ok(html! {});
     }
@@ -558,7 +559,13 @@ async fn create(
     members::require_in_group(&app, &me, app.now()).await?;
     let f = read_form(mp).await?;
     ensure_theme(&app, &f, me.id).await?;
-    let c = attach_uploads(&app, &f, me.id, f.content(&app.cfg.default_language)).await?;
+    let c = attach_uploads(
+        &app,
+        &f,
+        me.id,
+        f.content(&settings::default_language(&app).await?),
+    )
+    .await?;
     let themes = questions::themes(&app).await?;
     let again = |fb: Markup, confirm: bool| {
         let extra = html! {
@@ -797,7 +804,13 @@ async fn edit(
     members::require_in_group(&app, &me, app.now()).await?;
     let f = read_form(mp).await?;
     ensure_theme(&app, &f, me.id).await?;
-    let c = attach_uploads(&app, &f, me.id, f.content(&app.cfg.default_language)).await?;
+    let c = attach_uploads(
+        &app,
+        &f,
+        me.id,
+        f.content(&settings::default_language(&app).await?),
+    )
+    .await?;
     let notice = match questions::edit(&app, id, &me, c, &f.rationale, app.now()).await? {
         EditOutcome::NoChange => "Nothing changed.".to_string(),
         EditOutcome::Applied { reopened: true, .. } => "Saved. The vote starts over.".to_string(),
@@ -1055,4 +1068,47 @@ mod tests {
         };
         assert_eq!(g.content("en").theme, "board games");
     }
+}
+
+// ---------------------------------------------------------------- settings
+
+async fn settings_page(
+    State(app): State<App>,
+    v: Viewer,
+    Query(n): Query<NoticeQ>,
+) -> WebResult<Markup> {
+    let lang = settings::default_language(&app).await?;
+    Ok(page(
+        "Settings",
+        nav(&v, "settings", n.notice.as_deref()),
+        html! {
+            h1 { "Group settings" }
+            form.stack method="post" action="/settings" style="max-width:420px" {
+                label { "Language of new questions"
+                    span.hint { "A code like fi, en or sv. The bot doesn't ask for it; a single question can still use another language." }
+                    input type="text" name="language" value=(lang) required;
+                }
+                div { button.primary type="submit" { "Save" } }
+            }
+            p.small.muted { "Also in Telegram: " code { "/language en" } }
+        },
+    ))
+}
+
+#[derive(Deserialize)]
+struct SettingsF {
+    language: String,
+}
+
+async fn save_settings(
+    State(app): State<App>,
+    v: Viewer,
+    headers: HeaderMap,
+    Form(f): Form<SettingsF>,
+) -> WebResult<Response> {
+    let l = settings::set_default_language(&app, &f.language, v.member(), app.now()).await?;
+    Ok(go(
+        &headers,
+        &with_notice("/settings", &format!("New questions are now in “{l}”.")),
+    ))
 }

@@ -48,6 +48,7 @@ pub fn page(title: &str, nav: Nav<'_>, body: Markup) -> Markup {
                         (link("/templates", "Templates", "templates"))
                         (link("/events", "Events", "events"))
                         (link("/players", "Players", "players"))
+                        (link("/settings", "Settings", "settings"))
                     }
                     div.me {
                         span { (nav.me.display_name) }

@@ -44,7 +44,6 @@ async fn wizard_through(h: &H, u: &From, prompt: &str, answer: &str) -> bot::Cal
     say(h, Chat::Private, u, answer).await;
     press(h, u, "w:diff:2").await;
     press(h, u, "w:theme:2").await; // themes sorted: art, film & tv, food & drink, geography, …
-    press(h, u, "w:lang_keep").await;
     press(h, u, "w:review").await;
     press(h, u, "w:submit").await
 }
@@ -87,7 +86,6 @@ async fn wizard_submits_a_question() {
     let themes = questions::themes(&h.app).await.unwrap();
     let geo = themes.iter().position(|t| t == "geography").unwrap();
     press(&h, &a, &format!("w:theme:{geo}")).await;
-    press(&h, &a, "w:lang_keep").await;
     let r = press(&h, &a, "w:review").await;
     assert!(r.sends[0].1.html.contains("Answer: Helsinki"));
     let r = press(&h, &a, "w:submit").await;
@@ -170,8 +168,11 @@ async fn wizard_with_pictures() {
     let themes = questions::themes(&h.app).await.unwrap();
     let music = themes.iter().position(|t| t == "music").unwrap();
     press(&h, &a, &format!("w:theme:{music}")).await;
-    say(&h, Chat::Private, &a, "en").await;
     press(&h, &a, "w:review").await;
+    // this one question is in English: switch from the review screen
+    press(&h, &a, "w:edit:language").await;
+    let back = say(&h, Chat::Private, &a, "en").await;
+    assert!(last_text(&back).contains("Review"));
     assert!(
         press(&h, &a, "w:submit").await.sends[0]
             .1
@@ -293,4 +294,47 @@ async fn outsiders_are_turned_away() {
         .await
         .unwrap();
     assert!(r[0].1.html.contains("not in it"));
+}
+
+#[tokio::test]
+async fn group_language_setting() {
+    let h = h().await;
+    let a = user(1, "Aino");
+    // the instance default until someone sets one
+    assert!(last_text(&say(&h, Chat::Group, &a, "/language").await).contains("<b>fi</b>"));
+    let r = say(&h, Chat::Group, &a, "/language Not A Code").await;
+    assert!(last_text(&r).contains("short language code"));
+    let r = say(&h, Chat::Group, &a, "/language EN").await;
+    assert_eq!(r[0].0, GROUP);
+    assert!(last_text(&r).contains("Aino set the group's question language to <b>en</b>"));
+    assert!(last_text(&say(&h, Chat::Private, &a, "/language").await).contains("<b>en</b>"));
+
+    // the wizard never asks, and the question gets the group's language
+    say(&h, Chat::Private, &a, "/add").await;
+    press(&h, &a, "w:kind:text").await;
+    say(&h, Chat::Private, &a, "What is the capital of Finland?").await;
+    say(&h, Chat::Private, &a, "Helsinki").await;
+    press(&h, &a, "w:diff:2").await;
+    let r = press(&h, &a, "w:theme:0").await;
+    assert!(
+        r.sends[0].1.html.contains("Anything else?"),
+        "straight to the extras"
+    );
+    let r = press(&h, &a, "w:review").await;
+    assert!(r.sends[0].1.html.contains(" · en"));
+    assert!(
+        press(&h, &a, "w:submit").await.sends[0]
+            .1
+            .html
+            .contains("Submitted")
+    );
+    let d = questions::detail(&h.app, 1).await.unwrap();
+    assert_eq!(d.current.content.language, "en");
+
+    // outsiders can look but not change it
+    h.tg.non_members.lock().unwrap().push(9);
+    let x = user(9, "Stranger");
+    assert!(last_text(&say(&h, Chat::Private, &x, "/language sv").await).contains("not in it"));
+    assert!(last_text(&say(&h, Chat::Private, &a, "/language").await).contains("<b>en</b>"));
+    assert!(bot::HELP.contains("/language"));
 }

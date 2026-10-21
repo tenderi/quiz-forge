@@ -10,7 +10,7 @@ use crate::domain::model::MediaKind;
 use crate::domain::voting::{Outcome, Vote};
 use crate::service::members::{self, Member};
 use crate::service::questions::{self, DecideOutcome, SubmitOutcome};
-use crate::service::{App, AppError, Button, OutMessage, Result, auth, cards, esc};
+use crate::service::{App, AppError, Button, OutMessage, Result, auth, cards, esc, settings};
 use chrono::{DateTime, Utc};
 use wizard::{Action, Input, Wizard};
 
@@ -43,6 +43,7 @@ pub const HELP: &str = "<b>quiz-forge</b> collects quiz questions for this group
 /web — a sign-in link for the web app\n\
 /random [theme] — a random accepted question\n\
 /stats — the bank in numbers\n\
+/language [code] — show or set the group's question language\n\
 /cancel — stop the current /add";
 
 fn text(chat: i64, html: impl Into<String>) -> (i64, OutMessage) {
@@ -108,8 +109,9 @@ fn wizard_msg(r: wizard::Reply) -> OutMessage {
 
 async fn start_wizard(app: &App, m: &Member, now: DateTime<Utc>) -> Result<OutMessage> {
     let themes = questions::themes(app).await?;
+    let language = settings::default_language(app).await?;
     let (w, r) = wizard::start(
-        &app.cfg.default_language,
+        &language,
         themes.first().map(String::as_str).unwrap_or("misc"),
     );
     save_wizard(app, m.id, &w, now).await?;
@@ -262,6 +264,34 @@ async fn command(
                 dm,
                 format!("Hi {}! {HELP}", esc(&m.display_name)),
             )])
+        }
+        ("language", _) => {
+            if arg.is_empty() {
+                let l = settings::default_language(app).await?;
+                return Ok(vec![text(
+                    chat_id,
+                    format!(
+                        "New questions are in <b>{}</b>. Change it with /language &lt;code&gt;, e.g. /language en.",
+                        esc(&l)
+                    ),
+                )]);
+            }
+            let m = match gate(app, from, now).await? {
+                Ok(m) => m,
+                Err(r) => return Ok(r),
+            };
+            match settings::set_default_language(app, arg, &m, now).await {
+                Ok(l) => Ok(vec![text(
+                    chat_id,
+                    format!(
+                        "{} set the group's question language to <b>{}</b>. A single question can still use another one (Language on the review screen).",
+                        esc(&m.display_name),
+                        esc(&l)
+                    ),
+                )]),
+                Err(AppError::Invalid(e)) => Ok(vec![text(chat_id, esc(&e))]),
+                Err(e) => Err(e),
+            }
         }
         ("stats", _) => {
             let s = questions::stats(app).await?;
