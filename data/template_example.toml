@@ -1,0 +1,43 @@
+# A quiz-night template (DESIGN.md §9.1). Each [[round]] has [[round.slot]]
+# entries; `count` repeats a slot. Every slot field is optional:
+#   kind        text | multiple_choice | multi_part | image | audio | tiebreaker
+#               (tiebreakers only fill slots that ask for them)
+#   theme       a theme name, or "$x": one theme chosen by the fill and shared
+#               by every slot in this round that says "$x"
+#   themes      any one of a list of themes
+#   difficulty  3, or a range [2, 4]
+#   tags_any    at least one of these tags
+#   tags_none   none of these tags
+#   language    overrides the template-wide language
+
+name = "Standard pub night"
+language = "fi"        # leave out to allow any language
+exclude_used = true    # skip questions used at earlier events
+spoilers = "exclude"   # or "warn": keep questions an expected player has seen, but flag them
+
+[[round]]
+title = "Warm-up"
+[[round.slot]]
+count = 10
+difficulty = [1, 2]
+
+[[round]]
+title = "Theme round"
+[[round.slot]]
+count = 10
+theme = "$t"
+
+[[round]]
+title = "Pictures"
+[[round.slot]]
+count = 3
+kind = "image"
+theme = "$a"           # the first three are pictures in the same theme
+[[round.slot]]
+count = 7
+difficulty = [2, 4]
+
+[[round]]
+title = "Tiebreaker"
+[[round.slot]]
+kind = "tiebreaker"

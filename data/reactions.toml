@@ -1,0 +1,13 @@
+# House-rule reactions posted in the group (DESIGN.md §4.4). `{name}` is the
+# submitter's name and `{prompt}` the question. One message is picked by hash of
+# the content, so retries give the same one. HTML-escaped before sending.
+
+boo = "Boo! 🍅 {name} just submitted a number answer: “{prompt}”"
+
+shame = [
+  "🔔 Shame! 🔔 {name} tried to sneak in a yes/no question: “{prompt}”. A coin flip is not a quiz question.",
+  "🙈 {name}, “{prompt}” — really? Yes/no questions are a 50 % free lunch. Not in this house.",
+  "📢 Attention everyone: {name} attempted a yes/no question (“{prompt}”). We will all pretend this didn't happen.",
+  "🐔 {name} submitted a yes/no question: “{prompt}”. Even the chicken could score half of these.",
+  "⚖️ The court finds {name} guilty of a yes/no question (“{prompt}”). Sentence: write a real one.",
+]

@@ -1,21 +1,16 @@
-# Secrets and private data: the question bank must never be committed
+# Runtime state and secrets: the question bank must never be committed.
+# (The repo's own data/ holds word lists and is tracked; runtime state lives
+# in DATA_DIR, which defaults to ./var.)
 .env
 .env.*
 !.env.example
-data/
+/var/
+*.db
+*.db-shm
+*.db-wal
 media/
 backups/
-*.dump
-*.sql.gz
 
-# Python
-__pycache__/
-*.py[cod]
-venv/
-.venv/
-.pytest_cache/
-.coverage
-
-# Frontend
-node_modules/
-frontend/dist/
+# Build output
+/target/
+lcov.info

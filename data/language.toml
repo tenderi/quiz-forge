@@ -1,0 +1,75 @@
+# Word lists used by the house rules and duplicate detection (DESIGN.md §4.3, §6).
+# Matching is done on normalized text (NFKC, lowercase, punctuation removed), and
+# the lists of all languages are combined: a Swedish "ja" in a Finnish question
+# still counts. Extend freely; keep entries lowercase.
+
+[yes_no]
+# Each entry is one yes/no-style answer word or phrase.
+words = [
+  "yes", "no", "true", "false", "correct", "incorrect", "right", "wrong",
+  "kyllä", "ei", "joo", "totta", "tarua", "tosi", "epätosi", "oikein", "väärin",
+  "ja", "nej", "sant", "falskt", "sann", "falsk",
+  "si", "sí", "oui", "non", "nein", "wahr", "falsch",
+]
+
+[numbers]
+# Number words: an answer made only of these (plus a short unit) is numeric.
+words = [
+  "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+  "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+  "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy",
+  "eighty", "ninety", "hundred", "thousand", "million", "billion", "dozen",
+  "nolla", "yksi", "kaksi", "kolme", "neljä", "viisi", "kuusi", "seitsemän",
+  "kahdeksan", "yhdeksän", "kymmenen", "toista", "kymmentä", "sata", "sataa",
+  "tuhat", "tuhatta", "miljoona", "miljoonaa", "miljardi", "miljardia",
+  "noll", "en", "ett", "två", "tre", "fyra", "fem", "sex", "sju", "åtta", "nio", "tio",
+  "hundra", "tusen", "miljon",
+]
+# Words that may follow a number without making it a non-number ("about 40 km").
+approximators = ["about", "approx", "approximately", "around", "circa", "ca", "noin", "n", "ungefär", "cirka", "c"]
+# Units that may follow a number ("42 km", "8 vuotta"). Kept short on purpose:
+# "50 Cent" or "7 Up" must stay ordinary answers.
+units = [
+  "km", "m", "cm", "mm", "kg", "g", "t", "l", "dl", "ml", "s", "h", "min",
+  "percent", "prosenttia", "procent", "°", "°c", "c",
+  "metres", "meters", "metre", "meter", "metriä", "metri", "kilometres", "kilometers", "kilometriä",
+  "kilos", "kilograms", "kiloa", "tonnes", "tons", "tonnia", "litres", "liters", "litraa",
+  "years", "year", "vuotta", "vuosi", "år", "days", "päivää", "dagar", "hours", "tuntia",
+  "minutes", "minuuttia", "seconds", "sekuntia",
+  "euros", "euroa", "eur", "dollars", "usd", "kronor", "kr",
+  "people", "persons", "henkeä", "ihmistä", "times", "kertaa", "gånger", "pieces", "kpl", "st",
+]
+# Number *words* only count as a numeric answer when the question asks for a
+# quantity; otherwise "Seven" (the film) would be refused.
+quantity_patterns = [
+  "\\bhow (many|much|long|far|tall|high|old|big|heavy|deep|wide)\\b",
+  "\\bkuinka (monta|paljon|pitkä|kauan|korkea|vanha|iso|suuri|syvä|leveä|painava)\\b",
+  "\\bmontako\\b",
+  "\\bpaljonko\\b",
+  "\\bmonessako\\b",
+  "\\bhur (många|mycket|lång|långt|hög|gammal|stor|djup)\\b",
+]
+
+[years]
+# Era markers: a number with one of these is a year.
+era_markers = ["bc", "bce", "ad", "ce", "ekr", "jkr", "eaa", "jaa", "fkr", "f", "e", "kr"]
+# Decade forms count as years too: "1960s" (handled in code) and "1960" followed
+# by one of these words ("1960-luvulla" normalizes to "1960 luvulla").
+decade_suffixes = ["luku", "luvulla", "luvun", "luvulta", "luvulle", "luvulle", "talet", "talets"]
+# A question that matches one of these regexes (on lowercase prompt) asks for a year.
+prompt_patterns = [
+  "\\b(which|what) year\\b",
+  "\\bin what year\\b",
+  "\\bwhen (was|were|did|is)\\b",
+  "\\bminä vuonna\\b",
+  "\\bmonesko vuosi\\b",
+  "\\bmilloin\\b",
+  "\\bvuonna\\b",
+  "\\bvilket år\\b",
+  "\\bnär\\b",
+]
+
+[stopwords]
+en = ["the", "a", "an", "of", "in", "on", "at", "to", "is", "was", "are", "were", "what", "which", "who", "whom", "whose", "how", "many", "much", "this", "that", "these", "those", "and", "or", "for", "by", "with", "from", "as", "be", "been", "did", "does", "do", "name", "called", "known"]
+fi = ["mikä", "mitä", "minkä", "kuka", "ketkä", "kenen", "mikä", "missä", "mistä", "mihin", "mille", "milloin", "minä", "on", "oli", "ovat", "olivat", "ja", "tai", "se", "ne", "tämä", "nämä", "tuo", "kuinka", "montako", "paljonko", "nimeltään", "kutsutaan", "eli", "joka", "jonka", "jota", "mitkä"]
+sv = ["vad", "vilken", "vilket", "vilka", "vem", "var", "när", "hur", "många", "är", "var", "och", "eller", "en", "ett", "den", "det", "de", "av", "i", "på", "till", "för", "med", "som", "heter", "kallas"]

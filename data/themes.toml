@@ -1,0 +1,5 @@
+# Initial theme list, seeded on first start. Members can add more.
+themes = [
+  "geography", "history", "music", "sport", "science", "film & tv", "literature",
+  "food & drink", "nature", "pop culture", "language", "art", "tech", "misc",
+]

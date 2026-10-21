@@ -1,6 +1,6 @@
 # quiz-forge — design
 
-Status: **draft v0.2** (2026-10-21). Nothing is implemented yet. This document is
+Status: **draft v0.3** (2026-10-21). Nothing is implemented yet. This document is
 the spec; code follows it, and changes to behaviour start as changes here.
 
 ## 1. What it is
@@ -240,8 +240,9 @@ punctuation. Diacritics are **kept**: in Finnish `ä/ö` are distinct letters.
 Stopwords for the question's language are dropped, from small per-language data
 files.
 
-**Scores** against every non-draft question (a few thousand rows is fine in
-Python; add a `pg_trgm` prefilter if the bank grows past ~50k):
+**Scores** against every non-draft question (a linear scan over a few
+thousand rows takes milliseconds; add a prefilter on shared trigrams if the bank
+grows past ~50k):
 
 - `q_sim` = character-trigram Jaccard on normalized prompts
 - `a_sim` = exact match on normalized answers or any accepted answer → 1.0,
@@ -363,7 +364,7 @@ and `exclude_ids`. A group constraint is `same: theme | tag`.
    players (if excluding), aren't already picked, and aren't a likely-duplicate
    (§6) of anything already picked.
 2. **Ranking:** `sha256(seed ‖ slot_path ‖ question_id)`, ascending. That's
-   stable across Python versions and platforms, unlike `random.shuffle`, and
+   stable across compiler versions and platforms, unlike a library PRNG, and
    independent of row order.
 3. **Variables and groups** (`$round_theme`, `same: theme`) are bound first. Themes
    with enough candidates for all their slots are ranked the same hash-based way,
@@ -406,51 +407,63 @@ All generated server-side from the frozen quiz, as HTML print views with
 
 ## 11. Architecture
 
+One Rust binary, one process, one SQLite file. The parts are tokio tasks that share
+a database pool and the domain layer:
+
 ```
-            Telegram ─────────► bot (python-telegram-bot, long polling)
-                                  │  HTTP + shared secret
- browser ─► reverse proxy ─► web (nginx, static SPA) ─► api (FastAPI) ─► Postgres
-                                                          ▲      │
-                              worker (scheduler: vote     │      └► media volume (private)
-                              closing, outbox, agent) ────┘
+ Telegram ◄──long polling──► bot task ─┐
+                                       ├─► service layer ─► domain (pure) 
+ browser ─► reverse proxy ─► web task ─┤        │
+                                       │        ├─► SQLite (WAL, one file)
+            scheduler task (1-min tick)┘        └─► media dir (content-addressed, private)
+            expire votes · deliver outbox · run agent
 ```
 
-| Component | Tech | Notes |
+| Module | Tech | Notes |
 |---|---|---|
-| `api` | Python 3.14, FastAPI, SQLAlchemy 2, Alembic (hand-written migrations) | The only writer to the DB. Owns the domain layer |
-| `domain` | Pure Python package, no I/O | Rules, dedupe, voting, proposals, typo guard, quiz fill. Most tests live here |
-| `bot` | python-telegram-bot 22 | Thin: wizard UI and vote cards; calls the API. **Sets the `httpx` logger to WARNING**, because at INFO it logs URLs containing the bot token |
-| `worker` | Same image as `api`, different entrypoint | 1-min tick: `expire_votes(now)`, flush the **outbox**, run the agent on its schedule |
-| `web` | React + TypeScript + Vite + Tailwind, served by nginx | Bank browser, question page (history/diff/proposals), submit form, templates, quiz builder, print views |
-| `db` | PostgreSQL | Single database |
-| Media | Content-addressed files on a volume (`sha256` path) | Served **only** through the authenticated API, never as static files |
+| `domain` | Plain Rust, no I/O, no clock, no randomness | Rules, text normalization, dedupe, voting, proposals, typo guard, quiz fill. Most tests live here |
+| `db` | `sqlx` (SQLite, runtime queries), SQL migrations embedded in the binary | Applied automatically at startup. JSON columns are `TEXT` holding JSON |
+| `service` | Plain Rust over `db` | Every state change: load state, call the domain, write the result **and its outbox messages in one transaction**. Takes `now` as a parameter |
+| `web` | `axum` + `maud` (compile-checked HTML) + **htmx**, vendored and embedded | Bank browser, question page (history, diff, proposals), submit form, templates, quiz builder, print views. No build step and no Node |
+| `bot` | `teloxide` (rustls) | Wizard UI, vote cards and commands; calls the service layer directly. The conversation logic is pure functions with tests |
+| `scheduler` | tokio interval | `expire_votes(now)`, outbox delivery, agent runs on `AGENT_SCHEDULE` |
+| `agent` | `reqwest` → Anthropic Messages API, behind a `ReviewProvider` trait | Off by default (§7) |
+| Media | Files named by `sha256` under `DATA_DIR/media` | Served **only** through authenticated routes, never as static files |
+
+Telegram access (sending, `getChatMember`) sits behind traits, so tests run with
+fakes, and so does the AI provider.
 
 **Outbox.** Every Telegram message the system needs to send (vote cards, DMs,
-"Boo!") goes into an `outbox` table inside the same transaction as the state
-change. The worker delivers it, retries with backoff, and marks it sent. A crash
-can't lose a notification or double-apply a state change.
+"Boo!") goes into an `outbox` table in the same transaction as the state change.
+The scheduler delivers it, retries with backoff, and marks it sent. A crash can't
+lose a notification or double-apply a state change.
 
-**Authentication.**
-- Bot → API: shared secret header, from `.env`.
-- Web: **login link from the bot**. `/web` in a DM sends a one-time link that
-  expires in 10 minutes. Opening it creates a session cookie (HttpOnly, Secure,
-  SameSite=Lax) holding a signed session id. Sessions are stored server-side and
-  re-check group membership every 24 h. No passwords, no email.
+**Authentication.** Web login is a **link from the bot**: `/web` in a DM sends a
+one-time link that expires in 10 minutes. Opening it creates a server-side session
+whose random id sits in a cookie (HttpOnly, Secure, SameSite=Lax). Sessions re-check
+group membership every 24 h. There are no passwords and no email. Forms carry a
+per-session CSRF token.
 
-**Deployment (generic).** A single `docker-compose.yml` and a `.env.example`.
-Every published port binds to `127.0.0.1` by default (`WEB_BIND`/`WEB_PORT`), and
-TLS is the deployer's reverse proxy (an example Caddy snippet goes in
-`docs/DEPLOYMENT.md`). Images are buildable off-box and shipped. The stack must
-survive host reboots (`restart: unless-stopped`). `backup.sh` takes a `pg_dump`
-plus a media tarball, and the destination is up to the deployer.
+**Deployment (generic).** The release build is a static `x86_64-unknown-linux-musl`
+binary from a `workflow_dispatch` GitHub Actions job. Run it under systemd (an
+example unit is in `deploy/`), or in the small Docker image built from the same
+binary. Everything lives under `DATA_DIR`: `quiz.db` and `media/`. `LISTEN` takes
+`127.0.0.1:PORT` or `unix:/path/to.sock`, the latter for a reverse proxy in a
+container that shares only a socket directory. TLS is the reverse proxy's job (an
+example Caddy snippet is in `docs/DEPLOYMENT.md`). `quiz-forge backup <dir>` writes
+a consistent `VACUUM INTO` copy of the database and syncs the media directory.
+Where it goes from there is up to the deployer.
 
-**Configuration** (env): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_GROUP_ID`,
-`PUBLIC_BASE_URL`, `DEFAULT_LANGUAGE`, `VOTE_WINDOW`, `VOTE_MIN_APPROVALS`,
-`MEDIA_MAX_IMAGE_MB`, `MEDIA_MAX_AUDIO_MB`, `AGENT_*`, plus generated secrets
-(`SESSION_SECRET`, `BOT_API_SECRET`, `POSTGRES_PASSWORD`) created on the host by an
-`ensure_env.sh`.
+**Configuration** (env, or a `.env` next to the binary): `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_GROUP_ID`, `PUBLIC_BASE_URL`, `LISTEN`, `DATA_DIR`, `DEFAULT_LANGUAGE`,
+`VOTE_WINDOW_HOURS`, `VOTE_MIN_APPROVALS`, `MEDIA_MAX_IMAGE_MB`,
+`MEDIA_MAX_AUDIO_MB`, `AGENT_*`. There are no generated secrets: session ids and
+login tokens are random values stored hashed in the database.
 
 ## 12. Data model (tables)
+
+SQLite types: ids are `INTEGER PRIMARY KEY`, timestamps are RFC 3339 UTC `TEXT`,
+and `[]`/`jsonb` columns below are JSON in `TEXT`.
 
 ```
 member(id, telegram_id UNIQUE, display_name, kind[human|agent], in_group, joined_at, left_at)
@@ -500,39 +513,43 @@ audit(id, at, actor_id, action, subject, data jsonb)
 | DM | `/random [theme]` | A random accepted question to read; records exposure |
 | Group | shaming message, "Boo!" | House-rule reactions (§4.3, §4.4) |
 
-## 14. Repository layout (planned)
+## 14. Repository layout
 
 ```
-src/quizforge/
-  domain/        rules.py dedupe.py voting.py proposals.py typo_guard.py quizfill.py  (pure)
-  data/          yes_no.toml numbers.toml stopwords/*.txt shaming.toml themes.toml
-  persistence/   models.py repo.py
-  api/           app.py routes/*.py auth.py media.py
-  bot/           app.py wizard.py cards.py
-  worker/        main.py outbox.py scheduler.py agent/{base.py,anthropic.py,prompts.py}
-alembic/
-frontend/
-docker/ docker-compose.yml .env.example ensure_env.sh backup.sh
-tests/  domain/ api/ fixtures/
-docs/   DESIGN.md DEPLOYMENT.md
+src/
+  main.rs           CLI: serve | migrate | backup
+  config.rs
+  domain/           text rules dedupe voting proposals typo_guard quizfill template  (pure)
+  db/               pool, row types, queries
+  service/          submit, vote, proposals, quizzes, events, outbox, auth
+  web/              axum router, maud pages, htmx partials, print views, media
+  bot/              teloxide dispatcher, wizard (pure), cards
+  scheduler.rs
+  agent/            provider trait, Anthropic client, prompt, result handling
+data/               yes_no.toml numbers.toml shaming.toml themes.toml stopwords/
+migrations/         *.sql (embedded)
+static/             htmx.min.js, app.css (embedded)
+deploy/             quiz-forge.service, Dockerfile, Caddyfile.example
+tests/              service, web and bot integration tests (in-memory SQLite)
+docs/               DESIGN.md DEPLOYMENT.md
 ```
 
 `.gitignore` excludes `.env`, `data/`, `media/`, `backups/` and `*.dump` from day
-one. The repo must never contain a real question.
+one. The repo must never contain a real question: test fixtures are invented.
 
 ## 15. Milestones
 
 1. **Domain core**: rules, dedupe, voting, proposals, typo guard, quiz fill, with
    tests. No I/O.
-2. **API + DB**: models, migrations, routes, media upload, outbox, worker vote
-   closing.
+2. **DB + services**: migrations, queries, transactions with outbox, media store,
+   vote expiry.
 3. **Bot**: wizard, vote cards, inbox, `/web` login.
 4. **Web**: bank browser, question page with diff, submit form, quiz builder,
    print views.
 5. **Agent**: provider interface, Claude implementation, typo guard wired in,
    budget caps.
-6. **Ops**: compose, `ensure_env.sh`, backup, `DEPLOYMENT.md`, CI (tests, lint,
-   build images).
+6. **Ops**: systemd unit, Dockerfile, backup command, `DEPLOYMENT.md`, CI (tests,
+   clippy, fmt, coverage, musl release build).
 
 ## 16. Decisions log
 
@@ -542,4 +559,6 @@ one. The repo must never contain a real question.
 | 2026-10-21 | Multiple choice is text only; image/audio questions are always open-answer |
 | 2026-10-21 | Shaming message and "Boo!" go to the group only |
 | 2026-10-21 | No read-aloud time estimate |
+| 2026-10-21 | Stack: Rust (axum, maud, htmx, sqlx, teloxide) in one process, instead of Python + a React SPA. No Node toolchain; small memory footprint on a 2 GB host |
+| 2026-10-21 | SQLite instead of PostgreSQL: one file, no database server, backup with `VACUUM INTO` |
 | 2026-10-21 | Licence: MIT |
