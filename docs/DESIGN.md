@@ -498,7 +498,7 @@ audit(id, at, actor_id, action, subject, data jsonb)
 | DM | `/inbox` | Proposals awaiting your decision, with accept/decline buttons and the diff inline |
 | DM | `/web` | One-time login link |
 | DM | `/random [theme]` | A random accepted question to read; records exposure |
-| Bot replies | shaming message, "Boo!" | House rules (§4.3) |
+| Group | shaming message, "Boo!" | House-rule reactions (§4.3, §4.4) |
 
 ## 14. Repository layout (planned)
 
