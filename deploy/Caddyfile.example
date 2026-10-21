@@ -1,0 +1,14 @@
+# Caddy in front of quiz-forge. TLS certificates are automatic.
+
+# quiz-forge on the same host, listening on a TCP port:
+quiz.example.org {
+	encode gzip
+	reverse_proxy 127.0.0.1:8090
+}
+
+# Or, with Caddy in a container that shares a socket directory with the host
+# (LISTEN=unix:/srv/quiz-run/quiz.sock on the host, mounted at /run/sites):
+# quiz.example.org {
+# 	encode gzip
+# 	reverse_proxy unix//run/sites/quiz.sock
+# }

@@ -1,7 +1,7 @@
 # quiz-forge — design
 
-Status: **draft v0.3** (2026-10-21). Nothing is implemented yet. This document is
-the spec; code follows it, and changes to behaviour start as changes here.
+Status: **v0.4** (2026-10-21). Milestones 1–6 are implemented (§15). This document
+is the spec; code follows it, and changes to behaviour start as changes here.
 
 ## 1. What it is
 
@@ -332,28 +332,30 @@ by default.
 
 ### 9.1 Templates
 
-A reusable shape:
+A reusable shape, written in TOML. The annotated example that new templates
+start from is `data/template_example.toml`:
 
-```yaml
-name: Standard pub night
-rounds:
-  - title: Warm-up
-    slots: 10 × { difficulty: 1-2 }
-  - title: Theme round
-    slots: 10 × { theme: $round_theme }          # one theme for the whole round
-  - title: Pictures
-    slots:
-      - 3 × { kind: image, group: A }            # "first three are image questions…"
-      - 7 × { difficulty: 2-4 }
-    groups: { A: { same: theme } }               # "…in the same theme"
-  - title: Tiebreaker
-    slots: 1 × { kind: tiebreaker }
-defaults: { language: fi, exclude_used: true, spoilers: exclude }
+```toml
+name = "Standard pub night"
+language = "fi"         # optional: only questions in this language
+exclude_used = true     # skip questions used at earlier events
+spoilers = "exclude"    # or "warn"
+
+[[round]]
+title = "Pictures"
+[[round.slot]]
+count = 3
+kind = "image"
+theme = "$a"            # "the first three are image questions in the same theme"
+[[round.slot]]
+count = 7
+difficulty = [2, 4]
 ```
 
-A slot constraint can set: `kind`, `theme` (fixed, one of a list, or a
-round/group variable), `difficulty` range, `tags_any`/`tags_none`, `language`,
-and `exclude_ids`. A group constraint is `same: theme | tag`.
+A slot can set `count`, `kind`, `theme` (a name, or a `$variable` the fill binds
+to one theme for every slot of the round that uses it), `themes` (any of a list),
+`difficulty` (a number or a range), `tags_any`, `tags_none` and `language`.
+Tiebreakers only go into slots that ask for `kind = "tiebreaker"`.
 
 ### 9.2 Seeded fill (deterministic)
 
@@ -441,8 +443,9 @@ lose a notification or double-apply a state change.
 **Authentication.** Web login is a **link from the bot**: `/web` in a DM sends a
 one-time link that expires in 10 minutes. Opening it creates a server-side session
 whose random id sits in a cookie (HttpOnly, Secure, SameSite=Lax). Sessions re-check
-group membership every 24 h. There are no passwords and no email. Forms carry a
-per-session CSRF token.
+group membership every 24 h. There are no passwords and no email. Every
+state-changing request must carry the session's CSRF token in an
+`X-CSRF-Token` header, which htmx adds from `hx-headers` on the page.
 
 **Deployment (generic).** The release build is a static `x86_64-unknown-linux-musl`
 binary from a `workflow_dispatch` GitHub Actions job. Run it under systemd (an
@@ -534,10 +537,14 @@ tests/              service, web and bot integration tests (in-memory SQLite)
 docs/               DESIGN.md DEPLOYMENT.md
 ```
 
-`.gitignore` excludes `.env`, `data/`, `media/`, `backups/` and `*.dump` from day
-one. The repo must never contain a real question: test fixtures are invented.
+`.gitignore` excludes `.env`, the runtime `DATA_DIR` (default `./var/`), `*.db`,
+`media/` and `backups/` from day one; the repo's own `data/` holds word lists. The repo must never contain a real question: test fixtures are invented.
 
 ## 15. Milestones
+
+All six are done as of 2026-10-21: 136 tests, 94 % line coverage
+(`cargo llvm-cov`; CI fails under 90 %). The parts not covered are the teloxide
+glue that needs the live Telegram API, `main.rs` and the scheduler's loop.
 
 1. **Domain core**: rules, dedupe, voting, proposals, typo guard, quiz fill, with
    tests. No I/O.
@@ -561,4 +568,7 @@ one. The repo must never contain a real question: test fixtures are invented.
 | 2026-10-21 | No read-aloud time estimate |
 | 2026-10-21 | Stack: Rust (axum, maud, htmx, sqlx, teloxide) in one process, instead of Python + a React SPA. No Node toolchain; small memory footprint on a 2 GB host |
 | 2026-10-21 | SQLite instead of PostgreSQL: one file, no database server, backup with `VACUUM INTO` |
+| 2026-10-21 | The agent calls the Messages API over raw HTTP (no official Rust SDK): default model `claude-opus-5-5` at effort `medium`, `web_search_20260209`, a strict `submit_review` tool with `tool_choice: auto`, `pause_turn` resumed, and `fallbacks: "default"` so a safety-classifier decline is retried on a fallback model instead of failing |
+| 2026-10-21 | Templates are TOML. Theme groups are written as variables (`theme = "$a"`), one theme per variable per round, instead of separate group blocks |
+| 2026-10-21 | No `draft` status in the database: an unsubmitted question lives in the wizard or form until it passes the house rules |
 | 2026-10-21 | Licence: MIT |

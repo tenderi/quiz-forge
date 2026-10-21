@@ -1,0 +1,23 @@
+# Example systemd unit. Adjust paths and the user; secrets go in the .env file.
+[Unit]
+Description=quiz-forge (quiz question bank: web, Telegram bot, scheduler)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=quizforge
+WorkingDirectory=/opt/quiz-forge
+EnvironmentFile=/opt/quiz-forge/.env
+ExecStart=/opt/quiz-forge/quiz-forge serve
+Restart=always
+RestartSec=5
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/quiz-forge
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

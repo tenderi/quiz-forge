@@ -20,7 +20,7 @@ impl Default for AgentConfig {
         AgentConfig {
             enabled: false,
             api_key: None,
-            model: "claude-sonnet-5-5".into(),
+            model: "claude-opus-5-5".into(),
             api_url: "https://api.anthropic.com".into(),
             max_questions_per_run: 25,
             max_cost_usd_per_run: 1.0,
