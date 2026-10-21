@@ -1,6 +1,6 @@
 # quiz-forge — design
 
-Status: **draft v0.1** (2026-10-21). Nothing is implemented yet. This document is
+Status: **draft v0.2** (2026-10-21). Nothing is implemented yet. This document is
 the spec; code follows it, and changes to behaviour start as changes here.
 
 ## 1. What it is
@@ -111,8 +111,8 @@ and the web give the same verdict because both call the same domain function.
 1. **No yes/no questions.** A version is refused if its normalized answer (or, for
    multiple choice, its set of choices) is a yes/no pair from the per-language word
    list: `yes/no, true/false, kyllä/ei, totta/tarua, ja/nej, sant/falskt`, and so on.
-   The list is a data file, and self-hosters can extend it. The bot replies with a
-   **shaming message** picked deterministically from a list, by hash of the
+   The list is a data file, and self-hosters can extend it. The bot posts a
+   **shaming message** in the group (§4.4), picked deterministically from a list, by hash of the
    question id, so it stays the same on retry and varies between questions. The
    submission stays a `draft` so it can be fixed.
 2. **Numeric answers only in tiebreakers, except years.**
@@ -125,12 +125,13 @@ and the web give the same verdict because both call the same domain function.
    - A non-year numeric answer is allowed **only** when `kind = tiebreaker`.
      Otherwise it's refused with a pointer to use the tiebreaker kind.
    - A year answer is allowed in any kind.
-   - **Every numeric answer, years included, gets the bot's reply "Boo!"**, whether
-     accepted or refused. It's a reaction, not a block.
+   - **Every numeric answer, years included, gets a "Boo!"** in the group (§4.4),
+     whether accepted or refused. It's a reaction, not a block.
 3. A tiebreaker **must** have a numeric answer (years count) so the closest guess
    wins.
 4. Multiple choice: `answer ∈ choices`, choices are unique after normalization, and
-   there are 3–6 of them.
+   there are 3–6 of them. Choices are **text only**: a multiple-choice question
+   can't carry media, so image and audio questions are always open-answer.
 5. Image/audio kinds need media, and media has to be on the allow-listed MIME types
    and under the size caps.
 
@@ -138,15 +139,24 @@ The heuristics will miss things ("Is Helsinki the capital?" with the answer
 "Correct"). The agent pass flags anything that slipped through (§7.2); a human then
 decides.
 
+### 4.4 Where house-rule reactions go
+
+The shaming message and "Boo!" are **posted in the group only, never in a DM**,
+whether the submission came from the DM wizard or the web. They mention the
+submitter and quote the offending prompt. The wizard or web form itself only shows
+the plain validation error ("yes/no questions aren't allowed"), so the
+public reaction stays in the group. Both go through the outbox with a dedupe key
+per `(version, rule)`, so a retry never posts twice.
+
 ## 5. Workflow
 
 ### 5.1 Lifecycle
 
 ```
             submit (rules pass)
-  draft ──────────────────────────► voting ──(window closes)──► accepted
-    ▲                                  │                            │
-    │ rules fail                       └──────────────► rejected    │ retire / unretire
+  draft ──────────────────────────► voting ──(enough approvals)──► accepted
+    ▲                                  │                              │
+    │ rules fail                       └─(window runs out)─► rejected │ retire / unretire
     │ (stays draft)                                       │         ▼
     └────────── author revises & resubmits ◄──────────────┘      retired
                 (new vote_round)
@@ -173,17 +183,21 @@ Defaults, all configurable via env:
 |---|---|
 | `VOTE_WINDOW` | 7 days |
 | `VOTE_MIN_APPROVALS` | 1 (from someone other than the author) |
-| Decision | At window close: **accepted iff `yes ≥ VOTE_MIN_APPROVALS` and `yes > no`**, otherwise rejected (ties reject) |
+| Accept | **Immediately**, on the vote that makes `yes ≥ VOTE_MIN_APPROVALS` and `yes > no` |
+| Reject | When the window runs out without the accept condition ever having been met |
 | Author votes | Not allowed |
-| Vote changes | Allowed until close; the last vote counts |
+| Vote changes | Allowed while voting is open; the last vote counts |
 | Visibility | Names shown on the card |
 
 - The vote card shows the prompt, answer, kind, difficulty, theme and media, plus
   any duplicate warnings ("⚠ similar to #123"), with ✅/❌ buttons and a link to the
   web page.
-- Closing is a deterministic, idempotent `close_due_votes(now)` run by a scheduler
-  tick every minute. Each close edits the card in place with the result, and
-  notifies the author by DM.
+- Acceptance is evaluated in the same transaction as each vote (`cast_vote(state,
+  vote, now)`), so it happens the moment the deciding ✅ lands. A ❌ only delays
+  acceptance: with one ❌ cast, two ✅ are needed.
+- Rejection is a deterministic, idempotent `expire_votes(now)` run by a scheduler
+  tick every minute. Either way the card is edited in place with the result, and
+  the author gets a DM.
 - **Material edits during voting** (prompt, answer, accepted answers, choices,
   parts, media, kind) start a new `vote_round`: votes reset, the window restarts and
   the card is reposted. Non-material edits (metadata, background, fun fact, notes,
@@ -338,7 +352,7 @@ defaults: { language: fi, exclude_used: true, spoilers: exclude }
 
 A slot constraint can set: `kind`, `theme` (fixed, one of a list, or a
 round/group variable), `difficulty` range, `tags_any`/`tags_none`, `language`,
-`max_read_time` (later) and `exclude_ids`. A group constraint is `same: theme | tag`.
+and `exclude_ids`. A group constraint is `same: theme | tag`.
 
 ### 9.2 Seeded fill (deterministic)
 
@@ -406,7 +420,7 @@ All generated server-side from the frozen quiz, as HTML print views with
 | `api` | Python 3.14, FastAPI, SQLAlchemy 2, Alembic (hand-written migrations) | The only writer to the DB. Owns the domain layer |
 | `domain` | Pure Python package, no I/O | Rules, dedupe, voting, proposals, typo guard, quiz fill. Most tests live here |
 | `bot` | python-telegram-bot 22 | Thin: wizard UI and vote cards; calls the API. **Sets the `httpx` logger to WARNING**, because at INFO it logs URLs containing the bot token |
-| `worker` | Same image as `api`, different entrypoint | 1-min tick: `close_due_votes(now)`, flush the **outbox**, run the agent on its schedule |
+| `worker` | Same image as `api`, different entrypoint | 1-min tick: `expire_votes(now)`, flush the **outbox**, run the agent on its schedule |
 | `web` | React + TypeScript + Vite + Tailwind, served by nginx | Bank browser, question page (history/diff/proposals), submit form, templates, quiz builder, print views |
 | `db` | PostgreSQL | Single database |
 | Media | Content-addressed files on a volume (`sha256` path) | Served **only** through the authenticated API, never as static files |
@@ -520,15 +534,12 @@ one. The repo must never contain a real question.
 6. **Ops**: compose, `ensure_env.sh`, backup, `DEPLOYMENT.md`, CI (tests, lint,
    build images).
 
-## 16. Open questions
+## 16. Decisions log
 
-1. **Early acceptance.** Should a question be accepted as soon as it has
-   ≥ `VOTE_MIN_APPROVALS` and zero ❌, instead of waiting out the window? Faster,
-   but a late ❌ could have tipped it.
-2. **Image questions in multiple choice.** Allowed ("which of these flags…"), or
-   kept separate?
-3. **Shaming messages and "Boo!"**: posted in the group, or only to the submitter's
-   DM? (Draft: in the group if `/add` started there, otherwise DM.)
-4. **Read-aloud time** per question, for pacing a night: worth adding as an
-   estimate in v1?
-5. **Licence.** The draft uses MIT.
+| Date | Decision |
+|---|---|
+| 2026-10-21 | Accept as soon as the approval threshold is met; reject when the window runs out without it |
+| 2026-10-21 | Multiple choice is text only; image/audio questions are always open-answer |
+| 2026-10-21 | Shaming message and "Boo!" go to the group only |
+| 2026-10-21 | No read-aloud time estimate |
+| 2026-10-21 | Licence: MIT |
