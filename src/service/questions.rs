@@ -1356,7 +1356,8 @@ pub struct VersionInfo {
 #[derive(Debug, Clone)]
 pub struct RoundInfo {
     pub row: RoundRow,
-    pub votes: Vec<(String, Vote)>,
+    /// (member id, name, vote)
+    pub votes: Vec<(i64, String, Vote)>,
 }
 
 #[derive(Debug, Clone)]
@@ -1446,7 +1447,7 @@ pub async fn detail(app: &App, qid: i64) -> Result<Detail> {
         let votes = round_votes(&mut conn, qid, row.round)
             .await?
             .into_iter()
-            .map(|(m, v)| (name(m), v))
+            .map(|(m, v)| (m, name(m), v))
             .collect();
         rounds.push(RoundInfo { row, votes });
     }

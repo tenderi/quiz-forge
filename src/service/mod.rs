@@ -15,6 +15,7 @@ pub mod telegram;
 
 use crate::config::Config;
 use crate::domain::rules::RuleReport;
+use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::Notify;
@@ -28,6 +29,9 @@ pub struct App {
     pub tg: Arc<dyn Telegram>,
     /// Poked after anything is queued, so the outbox doesn't wait for the tick.
     pub outbox_wake: Arc<Notify>,
+    /// Wall time for the edges (web, bot, scheduler). Services take `now` as a
+    /// parameter instead; tests swap this for a fixed clock.
+    pub clock: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>,
 }
 
 impl App {
@@ -37,7 +41,12 @@ impl App {
             cfg: Arc::new(cfg),
             tg,
             outbox_wake: Arc::new(Notify::new()),
+            clock: Arc::new(Utc::now),
         }
+    }
+
+    pub fn now(&self) -> DateTime<Utc> {
+        (self.clock)()
     }
 }
 
