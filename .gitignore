@@ -1,0 +1,21 @@
+# Secrets and private data: the question bank must never be committed
+.env
+.env.*
+!.env.example
+data/
+media/
+backups/
+*.dump
+*.sql.gz
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+.coverage
+
+# Frontend
+node_modules/
+frontend/dist/
