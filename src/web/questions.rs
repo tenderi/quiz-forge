@@ -4,7 +4,7 @@
 use super::layout::{self, Nav, changes_table, content_view, page, status_badge};
 use super::{Viewer, WebError, WebResult, go, with_notice};
 use crate::domain::dedupe::{Band, Match};
-use crate::domain::model::{Content, Kind, MediaKind, MediaRef, Part, Patch};
+use crate::domain::model::{Content, Kind, MediaKind, MediaRef, Patch, format_parts, parse_parts};
 use crate::domain::rules::RuleReport;
 use crate::domain::voting::Vote;
 use crate::service::questions::{self, DecideOutcome, EditOutcome, Filter, SubmitOutcome};
@@ -334,52 +334,6 @@ fn lines(s: &str) -> Vec<String> {
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
         .collect()
-}
-
-/// Parts are written one per line as `[prompt ::] answer [; points]`.
-pub fn parse_parts(s: &str) -> Vec<Part> {
-    lines(s)
-        .into_iter()
-        .map(|l| {
-            let (prompt, rest) = match l.split_once("::") {
-                Some((p, r)) => (
-                    Some(p.trim().to_string()).filter(|p| !p.is_empty()),
-                    r.trim().to_string(),
-                ),
-                None => (None, l.clone()),
-            };
-            let (answer, points) = match rest.rsplit_once(';') {
-                Some((a, p)) if p.trim().parse::<u32>().is_ok() => {
-                    (a.trim().to_string(), p.trim().parse().unwrap())
-                }
-                _ => (rest.trim().to_string(), 1),
-            };
-            Part {
-                prompt,
-                answer,
-                points,
-            }
-        })
-        .collect()
-}
-
-pub fn format_parts(parts: &[Part]) -> String {
-    parts
-        .iter()
-        .map(|p| {
-            let pre = p
-                .prompt
-                .as_ref()
-                .map(|x| format!("{x} :: "))
-                .unwrap_or_default();
-            if p.points == 1 {
-                format!("{pre}{}", p.answer)
-            } else {
-                format!("{pre}{} ; {}", p.answer, p.points)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn media_refs(values: &[String]) -> Vec<MediaRef> {
@@ -1034,6 +988,7 @@ async fn serve_media(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::model::Part;
 
     #[test]
     fn parts_round_trip() {

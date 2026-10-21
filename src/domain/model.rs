@@ -197,6 +197,53 @@ impl Content {
     }
 }
 
+/// Parts are written one per line as `[prompt ::] answer [; points]`.
+pub fn parse_parts(s: &str) -> Vec<Part> {
+    s.lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let (prompt, rest) = match l.split_once("::") {
+                Some((p, r)) => (
+                    Some(p.trim().to_string()).filter(|p| !p.is_empty()),
+                    r.trim().to_string(),
+                ),
+                None => (None, l.clone()),
+            };
+            let (answer, points) = match rest.rsplit_once(';') {
+                Some((a, p)) if p.trim().parse::<u32>().is_ok() => {
+                    (a.trim().to_string(), p.trim().parse().unwrap())
+                }
+                _ => (rest.trim().to_string(), 1),
+            };
+            Part {
+                prompt,
+                answer,
+                points,
+            }
+        })
+        .collect()
+}
+
+pub fn format_parts(parts: &[Part]) -> String {
+    parts
+        .iter()
+        .map(|p| {
+            let pre = p
+                .prompt
+                .as_ref()
+                .map(|x| format!("{x} :: "))
+                .unwrap_or_default();
+            if p.points == 1 {
+                format!("{pre}{}", p.answer)
+            } else {
+                format!("{pre}{} ; {}", p.answer, p.points)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// A field of [`Content`], for diffs and permission rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -1,5 +1,6 @@
 //! quiz-forge: a self-hosted quiz question bank. See docs/DESIGN.md.
 
+pub mod bot;
 pub mod config;
 pub mod db;
 pub mod domain;
