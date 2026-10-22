@@ -46,6 +46,23 @@ pub const HELP: &str = "<b>quiz-forge</b> collects quiz questions for this group
 /language [code] — show or set the group's question language\n\
 /cancel — stop the current /add";
 
+/// The `/` menu Telegram shows, registered at startup. A test keeps it in step
+/// with [`HELP`].
+pub const COMMANDS: &[(&str, &str)] = &[
+    ("add", "Submit a question (in a private chat with me)"),
+    ("mine", "Your questions"),
+    ("inbox", "Change proposals waiting for you"),
+    ("web", "A sign-in link for the web app"),
+    (
+        "random",
+        "A random accepted question, optionally from a theme",
+    ),
+    ("stats", "The bank in numbers"),
+    ("language", "Show or set the group's question language"),
+    ("cancel", "Stop the current /add"),
+    ("help", "What I can do"),
+];
+
 fn text(chat: i64, html: impl Into<String>) -> (i64, OutMessage) {
     (chat, OutMessage::text(html))
 }
@@ -536,6 +553,24 @@ mod tests {
             "/add", "/mine", "/inbox", "/web", "/random", "/stats", "/cancel",
         ] {
             assert!(HELP.contains(c), "{c}");
+        }
+    }
+
+    #[test]
+    fn menu_matches_help() {
+        let help: Vec<&str> = HELP
+            .lines()
+            .filter_map(|l| l.strip_prefix('/')?.split([' ', '\u{2014}']).next())
+            .collect();
+        let menu: Vec<&str> = COMMANDS.iter().map(|(c, _)| *c).collect();
+        for c in &help {
+            assert!(menu.contains(c), "/{c} is in HELP but not in COMMANDS");
+        }
+        for (c, d) in COMMANDS {
+            assert!(*c == "help" || help.contains(c), "/{c} is not in HELP");
+            // Telegram's limits for setMyCommands.
+            assert!(c.len() <= 32 && c.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'));
+            assert!((1..=256).contains(&d.chars().count()), "/{c}");
         }
     }
 }

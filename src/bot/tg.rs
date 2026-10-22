@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use teloxide::net::Download;
 use teloxide::prelude::*;
 use teloxide::types::{
-    ChatId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, LinkPreviewOptions, MessageId,
-    ParseMode, UserId,
+    BotCommand, ChatId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, LinkPreviewOptions,
+    MessageId, ParseMode, UserId,
 };
 use teloxide::{ApiError, RequestError};
 
@@ -147,6 +147,14 @@ pub async fn run(app: App, bot: Bot) -> anyhow::Result<()> {
     let me = bot.get_me().await?;
     let name = BotName(me.user.username.clone().unwrap_or_default());
     tracing::info!("bot @{} started", name.0);
+    let commands = super::COMMANDS
+        .iter()
+        .map(|(c, d)| BotCommand::new(*c, *d))
+        .collect::<Vec<_>>();
+    // Only the `/` menu depends on this, so a failure doesn't stop the bot.
+    if let Err(e) = bot.set_my_commands(commands).await {
+        tracing::warn!("registering the command menu failed: {e}");
+    }
     let handler = dptree::entry()
         .branch(Update::filter_message().endpoint(handle_message))
         .branch(Update::filter_callback_query().endpoint(handle_callback));
